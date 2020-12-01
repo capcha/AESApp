@@ -44,6 +44,16 @@ namespace AESApp
             csEncrypt.Write(File.ReadAllBytes(filename + ".jpg"));
         }
 
+        static byte[] ToBytes(int input)
+        {
+            byte[] intBytes = BitConverter.GetBytes(input);
+            if (BitConverter.IsLittleEndian)
+                Array.Reverse(intBytes);
+            byte[] result = intBytes;
+
+            return result;
+        }
+
         // Шифрование метаданных изображения
         static void EncryptMetadata(Aes aes, byte[] hashedPswd, string filename)
         {
@@ -62,42 +72,31 @@ namespace AESApp
             // Создаем CryptoStream
             using var csEncrypt = new CryptoStream(fileEncrypt, aesEncryptor, CryptoStreamMode.Write);
 
+            
             for (int i = 0; i < propItems.Length; i++)
             {
+
                 csEncrypt.Write(propItems[i].Value);
+
             }
 
             csEncrypt.Close();
             fileEncrypt.Close();
 
-            BinaryReader binaryReader = new BinaryReader(File.OpenRead(filename + "enc-Metadata.bin"));
+
+            using BinaryReader binaryReader = new BinaryReader(File.OpenRead(filename + "enc-Metadata.bin"));
 
             for (int i = 0; i < propItems.Length; i++)
-            {
+            { 
+
                 binaryReader.Read(propItems[i].Value);
                 
                 image.SetPropertyItem(propItems[i]);
-
             }
 
             image.Save(filename + "enc-Metadata.jpg");
 
-            /*// Записываем данные до метаданных
-            fileEncrypt.Write(fileBytes
-                                .Take(propItems[0].Id)
-                                .ToArray());
-
-            // Шифруем метаданные
-            csEncrypt.Write(fileBytes
-                                .Skip(propItems[0].Id)
-                                .Take(metadataLen)
-                                .ToArray());
-
-            // Записываем данные после метаданных
-            fileEncrypt.Write(fileBytes
-                                .Skip(propItems[0].Id + metadataLen)
-                                .Take(fileBytes.Length - metadataLen)
-                                .ToArray());*/
+            Image SASDAS = Image.FromFile(filename + "enc-Metadata.jpg");
 
         }
 
@@ -114,8 +113,6 @@ namespace AESApp
 
             // Берем метаданные изображения
             PropertyItem[] propItems = image.PropertyItems;
-
-
 
             // Создаем CryptoStream
             using var csEncrypt = new CryptoStream(fileEncrypt, aesEncryptor, CryptoStreamMode.Write);
