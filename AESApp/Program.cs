@@ -5,7 +5,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Drawing;
 using System.Drawing.Imaging;
-using System.Collections.Generic;
+using System.Runtime.Serialization;
 
 namespace AESApp
 {
@@ -23,9 +23,11 @@ namespace AESApp
 
             Decrypt(aes, hashedPswd, filename);
 
-            aes.Mode = CipherMode.ECB;
+            aes.Mode = CipherMode.CBC;
 
-            EncryptMetadata(aes, hashedPswd, filename);
+            EncryptData(aes, hashedPswd, filename);
+            EncryptDataIV(aes, hashedPswd, filename);
+
         }
 
         // Шифрование данных
@@ -44,107 +46,193 @@ namespace AESApp
             csEncrypt.Write(File.ReadAllBytes(filename + ".jpg"));
         }
 
-        static byte[] ToBytes(int input)
-        {
-            byte[] intBytes = BitConverter.GetBytes(input);
-            if (BitConverter.IsLittleEndian)
-                Array.Reverse(intBytes);
-            byte[] result = intBytes;
-
-            return result;
-        }
-
         // Шифрование метаданных изображения
-        static void EncryptMetadata(Aes aes, byte[] hashedPswd, string filename)
+        static void EncryptData(Aes aes, byte[] hashedPswd, string filename)
         {
             // Создаем Encryptor
             var aesEncryptor = aes.CreateEncryptor(hashedPswd, hashedPswd.Take(16).ToArray());
 
             // Создаем файл-destination, куда будем записывать зашифрованные данные
-            using var fileEncrypt = File.Create(filename + "enc-Metadata.bin");
+            var fileEncrypt = File.Create(filename + "enc-Data.bin");
 
             // Берем изображение
-            Image image = Image.FromFile(filename + ".jpg");
-
-            // Берем метаданные изображения
-            PropertyItem[] propItems = image.PropertyItems;
+            using Bitmap bitmap = new Bitmap(filename + ".jpg");
 
             // Создаем CryptoStream
-            using var csEncrypt = new CryptoStream(fileEncrypt, aesEncryptor, CryptoStreamMode.Write);
+            var csEncrypt = new CryptoStream(fileEncrypt, aesEncryptor, CryptoStreamMode.Write);
 
-            
-            for (int i = 0; i < propItems.Length; i++)
+            Color color;
+            byte[] RGBA = new byte[4];
+
+            // Бежим по изображению
+            // Берем пиксель, шифруем RGBA
+            for (int i = 0; i < bitmap.Width; i++)
             {
+                for (int j = 0; j < bitmap.Height; j++)
+                {
+                    color = bitmap.GetPixel(i, j);
+                    RGBA[0] = color.R;
+                    RGBA[1] = color.G;
+                    RGBA[2] = color.B;
+                    RGBA[3] = color.A;
+                    csEncrypt.Write(RGBA);
 
-                csEncrypt.Write(propItems[i].Value);
-
+                }
             }
 
             csEncrypt.Close();
             fileEncrypt.Close();
 
+            BinaryReader binaryReader = new BinaryReader(File.OpenRead(filename + "enc-Data.bin"));
 
-            using BinaryReader binaryReader = new BinaryReader(File.OpenRead(filename + "enc-Metadata.bin"));
+            // Бежим по изображению
+            // Сеттим зашифрованные пиксели
+            for (int i = 0; i < bitmap.Width; i++)
+            {
+                for (int j = 0; j < bitmap.Height; j++)
+                {
+                    RGBA = binaryReader.ReadBytes(4);
 
-            for (int i = 0; i < propItems.Length; i++)
-            { 
-
-                binaryReader.Read(propItems[i].Value);
-                
-                image.SetPropertyItem(propItems[i]);
+                    bitmap.SetPixel(i, j, Color.FromArgb(RGBA[3], RGBA[0], RGBA[1], RGBA[2]));
+                }
             }
-
-            image.Save(filename + "enc-Metadata.jpg");
-
-            Image SASDAS = Image.FromFile(filename + "enc-Metadata.jpg");
+            
+            binaryReader.Close();
+            File.Delete(filename + "enc-Data.bin");
+            // Сохраняем
+            bitmap.Save(filename + "enc-Data.jpg", bitmap.RawFormat);
 
         }
 
-        static void EncryptMetadataIV(Aes aes, byte[] hashedPswd, string filename)
+        static void DecryptData(Aes aes, byte[] hashedPswd, string filename)
+        {
+            // Создаем Encryptor
+            var aesDecryptor = aes.CreateDecryptor(hashedPswd, hashedPswd.Take(16).ToArray());
+
+            // Берем изображение
+            using Bitmap bitmap = new Bitmap(filename + "enc-Data.jpg");
+
+            Color color;
+            byte[] RGBA = new byte[4];
+
+            var fileEncrypt = File.Create(filename + "enc-Data.bin");
+
+            // Бежим по изображению
+            // Берем пиксель, шифруем RGBA
+            for (int i = 0; i < bitmap.Width; i++)
+            {
+                for (int j = 0; j < bitmap.Height; j++)
+                {
+                    color = bitmap.GetPixel(i, j);
+                    RGBA[0] = color.R;
+                    RGBA[1] = color.G;
+                    RGBA[2] = color.B;
+                    RGBA[3] = color.A;
+
+                    fileEncrypt.Write(RGBA);
+                }
+            }
+
+            fileEncrypt.Close();
+
+            // Создаем файл-source, откуда будем брать зашифрованные данные
+            var fileDecrypt = File.OpenRead(filename + "enc-Data.bin");
+            // Создаем CryptoStream
+            var csEncrypt = new CryptoStream(fileDecrypt, aesDecryptor, CryptoStreamMode.Read);
+
+            for (int i = 0; i < bitmap.Width; i++)
+            {
+                for (int j = 0; j < bitmap.Height; j++)
+                {
+                    csEncrypt.Read(RGBA);
+
+                    bitmap.SetPixel(i, j, Color.FromArgb(RGBA[3], RGBA[0], RGBA[1], RGBA[2]));
+                }
+            }
+
+            fileDecrypt.Close();
+            csEncrypt.Close();
+
+            File.Delete(filename + "enc-Data.bin");
+
+            // Сохраняем
+            bitmap.Save(filename + "decr-Data.jpg", bitmap.RawFormat);
+
+        }
+
+        static void EncryptDataIV(Aes aes, byte[] hashedPswd, string filename)
         {
             // Создаем Encryptor
             var aesEncryptor = aes.CreateEncryptor(hashedPswd, hashedPswd.Take(16).ToArray());
 
             // Создаем файл-destination, куда будем записывать зашифрованные данные
-            using var fileEncrypt = File.Create(filename + "enc-Metadata.jpg");
+            var fileEncrypt = File.Create(filename + "enc-Data.bin");
 
             // Берем изображение
-            Image image = Image.FromFile(filename + ".jpg");
+            using Bitmap bitmap = new Bitmap(filename + ".jpg");
 
-            // Берем метаданные изображения
-            PropertyItem[] propItems = image.PropertyItems;
+            // Создаем экземпляр класса и генерируем IV
+            using RijndaelManaged rijndaelManaged = new RijndaelManaged();
+            rijndaelManaged.GenerateIV();
+
+            // Так как нельзя создать инстанс класса, используемсериализацию
+            PropertyItem property = (PropertyItem)FormatterServices.GetUninitializedObject(typeof(PropertyItem));
+
+            // Выбираем доступный флаг
+            property.Id = 0;
+
+            // Поле, указывающее тип в массиве Value 
+            property.Type = 6;
+
+            // Длина массива Value
+            property.Len = rijndaelManaged.IV.Length;
+
+            // Сохраняем в Value IV
+            property.Value = rijndaelManaged.IV;
+
+            // Ставим новое свойство
+            bitmap.SetPropertyItem(property);
 
             // Создаем CryptoStream
-            using var csEncrypt = new CryptoStream(fileEncrypt, aesEncryptor, CryptoStreamMode.Write);
+            var csEncrypt = new CryptoStream(fileEncrypt, aesEncryptor, CryptoStreamMode.Write);
 
-            // Читаем данные с файла-source
-            var fileBytes = File.ReadAllBytes(filename + ".jpg");
+            Color color;
+            byte[] RGBA = new byte[4];
 
-            // Длина метаданных
-            int metadataLen = 0;
-
-            for (int i = 0; i < propItems.Length; i++)
+            // Бежим по изображению
+            // Берем пиксель, шифруем RGBA
+            for (int i = 0; i < bitmap.Width; i++)
             {
-                metadataLen += propItems[i].Len;
+                for (int j = 0; j < bitmap.Height; j++)
+                {
+                    color = bitmap.GetPixel(i, j);
+                    RGBA[0] = color.R;
+                    RGBA[1] = color.G;
+                    RGBA[2] = color.B;
+                    RGBA[3] = color.A;
+                    csEncrypt.Write(RGBA);
+                }
             }
 
-            // Записываем данные до метаданных
-            fileEncrypt.Write(fileBytes
-                                .Take(propItems[0].Id)
-                                .ToArray());
+            csEncrypt.Close();
+            fileEncrypt.Close();
 
-            // Шифруем метаданные
-            csEncrypt.Write(fileBytes
-                                .Skip(propItems[0].Id)
-                                .Take(metadataLen)
-                                .ToArray());
+            using BinaryReader binaryReader = new BinaryReader(File.OpenRead(filename + "enc-Data.bin"));
 
-            // Записываем данные после метаданных
-            fileEncrypt.Write(fileBytes
-                                .Skip(propItems[0].Id + metadataLen)
-                                .Take(fileBytes.Length - metadataLen)
-                                .ToArray());
+            // Бежим по изображению
+            // Сеттим зашифрованные пиксели
+            for (int i = 0; i < bitmap.Width; i++)
+            {
+                for (int j = 0; j < bitmap.Height; j++)
+                {
+                    RGBA = binaryReader.ReadBytes(4);
+                    color = Color.FromArgb(RGBA[3], RGBA[0], RGBA[1], RGBA[2]);
 
+                    bitmap.SetPixel(i, j, color);
+                }
+            }
+
+            bitmap.Save(filename + "enc-Data.jpg", bitmap.RawFormat);
         }
 
         // Дешифрование данных
